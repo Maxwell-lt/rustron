@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 telnet = "0.1.4"
+anyhow = "1.0.39"
