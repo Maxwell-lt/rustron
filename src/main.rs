@@ -30,7 +30,11 @@ fn main() {
         let mut telnet = login(ADDRESS).unwrap();
         loop {
             if let Ok(TelnetEvent::Data(data)) = telnet.read_nonblocking() {
-                println!("{}", String::from_utf8_lossy(&data));
+                for s in String::from_utf8_lossy(&data).split_whitespace().filter(|&s| s != "GNET>") {
+                    // Prints individual output lines without the prompt, perfect for sending down
+                    // a broadcast queue
+                    println!("{}", s);
+                }
             }
             if let Ok(data) = rx.recv_timeout(Duration::from_secs(1)) {
                 println!("{}", data);
