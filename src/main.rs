@@ -1,50 +1,55 @@
+#![feature(proc_macro_hygiene, decl_macro)]
+
+#[macro_use] extern crate rocket;
+
 use telnet::{Telnet, TelnetEvent};
 use anyhow::Result;
-use std::io::{self, Write};
-use std::time::Instant;
+use std::time::Duration;
+use std::thread;
+use std::sync::mpsc::{channel, Sender};
+use std::sync::Mutex;
+use rocket::State;
 
-fn main() -> Result<()> {
-    let mut telnet: Telnet;
-    {
-        println!("Connecting...");
-        let start = Instant::now();
-        telnet = login("10.0.0.73")?;
-        let duration = start.elapsed();
-        println!("Connected after {} seconds", duration.as_secs());
-    }
+#[post("/device/<index>/setlevel/<level>?<time>")]
+fn set_light_level(index: u8, level: u8, time: Option<u16>, sender_holder: State<Mutex<Sender<String>>>) {
+    let command = match time {
+        None => format!("#OUTPUT,{},1,{}\n", index, level),
+        Some(duration) => format!("#OUTPUT,{},1,{},{}\n", index, level, duration)
+    };
 
-    loop {
-        print!("Enter a new light level for the switch with ID 3: ");
-        io::stdout().flush()?;
-        let mut buffer = String::new();
-        io::stdin().read_line(&mut buffer)?;
-        match buffer.trim().parse::<f64>() {
-            Ok(new_level) => {
-                println!("You entered {}", new_level);
-                let command = format!("#OUTPUT,3,1,{}\n", buffer.trim());
-                println!("Sending command <{}>...", command.trim());
-                telnet.write(command.as_bytes())?;
-                if let TelnetEvent::Data(response) = telnet.read()? {
-                    let data = String::from_utf8_lossy(&response);
-                    for line in data.lines() {
-                        if line != "GNET> " {
-                            println!("{}", line);
-                        }
-                    }
-                }
-            },
-            Err(e) => {
-                println!("Invalid input: {}", e);
+    let tx: Sender<String> = sender_holder.lock().unwrap().clone();
+    drop(sender_holder);
+    tx.send(command).unwrap();
+}
+
+fn main() {
+    const ADDRESS: &str = "10.0.0.73";
+
+    let (tx, rx) = channel::<String>();
+    thread::spawn(move|| {
+        let mut telnet = login(ADDRESS).unwrap();
+        loop {
+            if let Ok(TelnetEvent::Data(data)) = telnet.read_nonblocking() {
+                println!("{}", String::from_utf8_lossy(&data));
+            }
+            if let Ok(data) = rx.recv_timeout(Duration::from_secs(1)) {
+                println!("{}", data);
+                telnet.write(&data.into_bytes()).unwrap();
             }
         }
-    }
+    });
+
+    rocket::ignite()
+        .mount("/", routes![set_light_level])
+        .manage(Mutex::new(tx))
+        .launch();
 }
 
 fn login(address: &str) -> Result<Telnet> {
     const USERNAME: &str = "lutron\n";
     const PASSWORD: &str = "integration\n";
 
-    let mut conn: Telnet = Telnet::connect((address, 23), 256)?;
+    let mut conn: Telnet = Telnet::connect((address, 23), 65535)?;
 
     loop {
         let evt = conn.read()?;
