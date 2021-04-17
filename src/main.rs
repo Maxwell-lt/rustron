@@ -32,7 +32,7 @@ fn main() {
     let (tx, rx) = channel::<String>();
     thread::spawn(move|| {
         let mut telnet = login(ADDRESS).unwrap();
-        let d = Duration::from_millis(50);
+        let d = Duration::from_millis(20);
         loop {
             if let Ok(TelnetEvent::Data(data)) = telnet.read_nonblocking() {
                 for s in String::from_utf8_lossy(&data).split_whitespace().filter(|&s| s != "GNET>") {
@@ -44,10 +44,11 @@ fn main() {
                     println!("{}", s);
                 }
             }
-            if let Ok(data) = rx.recv_timeout(d) {
+            if let Ok(data) = rx.try_recv() {
                 println!("{}", data);
                 telnet.write(&data.into_bytes()).unwrap();
             }
+            thread::sleep(d);
         }
     });
 
