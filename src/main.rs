@@ -10,15 +10,19 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
 use rocket::State;
 
+struct CommandSender<T> {
+    tx: Mutex<Sender<T>>,
+}
+
 #[post("/device/<index>/setlevel/<level>?<time>")]
-fn set_light_level(index: u8, level: u8, time: Option<u16>, sender_holder: State<Mutex<Sender<String>>>) {
+fn set_light_level(index: u8, level: u8, time: Option<u16>, command_sender: State<CommandSender<String>>) {
     let command = match time {
         None => format!("#OUTPUT,{},1,{}\n", index, level),
         Some(duration) => format!("#OUTPUT,{},1,{},{}\n", index, level, duration)
     };
 
-    let tx: Sender<String> = sender_holder.lock().unwrap().clone();
-    drop(sender_holder);
+    let tx: Sender<String> = command_sender.tx.lock().unwrap().clone();
+    drop(command_sender);
     tx.send(command).unwrap();
 }
 
@@ -28,15 +32,19 @@ fn main() {
     let (tx, rx) = channel::<String>();
     thread::spawn(move|| {
         let mut telnet = login(ADDRESS).unwrap();
+        let d = Duration::from_millis(50);
         loop {
             if let Ok(TelnetEvent::Data(data)) = telnet.read_nonblocking() {
                 for s in String::from_utf8_lossy(&data).split_whitespace().filter(|&s| s != "GNET>") {
                     // Prints individual output lines without the prompt, perfect for sending down
                     // a broadcast queue
+                    // ...except for error output, which includes a space between the decimal and
+                    // hex number. Perhaps lines starting with '0x' can be ignored, if the decimal
+                    // and hex values are always equivalent.
                     println!("{}", s);
                 }
             }
-            if let Ok(data) = rx.recv_timeout(Duration::from_secs(1)) {
+            if let Ok(data) = rx.recv_timeout(d) {
                 println!("{}", data);
                 telnet.write(&data.into_bytes()).unwrap();
             }
@@ -45,7 +53,7 @@ fn main() {
 
     rocket::ignite()
         .mount("/", routes![set_light_level])
-        .manage(Mutex::new(tx))
+        .manage(CommandSender {tx: Mutex::new(tx)})
         .launch();
 }
 
