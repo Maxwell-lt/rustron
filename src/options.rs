@@ -1,5 +1,5 @@
-use structopt::StructOpt;
 use std::net::IpAddr;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(about = "Control server for Lutron SmartBridge Pro")]
