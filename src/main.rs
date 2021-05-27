@@ -3,12 +3,15 @@
 #[macro_use]
 extern crate rocket;
 
+mod integration;
 mod options;
 mod telnet;
-use crate::options::parse_commandline;
 use crate::telnet::TelnetConn;
-
+use anyhow::Result;
+use integration::IntegrationReport;
 use rocket::State;
+use std::fs::File;
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
@@ -36,8 +39,8 @@ fn set_light_level(
     tx.send(command).unwrap();
 }
 
-fn main() {
-    let args = parse_commandline();
+fn main() -> Result<()> {
+    let args: options::Commandline = options::parse_commandline();
     let bridge_address = SocketAddr::from((args.addr, args.port));
     let (tx, rx) = channel::<String>();
     thread::spawn(move || {
@@ -57,8 +60,15 @@ fn main() {
         }
     });
 
+    if let Some(report_path) = args.integration_report_path {
+        let report: IntegrationReport =
+            serde_json::from_reader(BufReader::new(File::open(report_path)?))?;
+        println!("Integration Report processed. Data:\n{:#?}", report);
+    }
+
     rocket::ignite()
         .mount("/", routes![set_light_level])
         .manage(CommandSender { tx: Mutex::new(tx) })
         .launch();
+    Ok(())
 }

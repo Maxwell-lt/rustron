@@ -73,9 +73,9 @@ fn event_to_strings(evt: TelnetEvent) -> Vec<String> {
             .filter_map(|win| {
                 if win[0] == "GNET>" {
                     None
-                } else if let Some('0') = win[0].chars().nth(0) {
+                } else if let Some('0') = win[0].chars().next() {
                     None
-                } else if let Some('0') = win[1].chars().nth(0) {
+                } else if let Some('0') = win[1].chars().next() {
                     Some(format!("{} {}", win[0], win[1]))
                 } else {
                     Some(win[0].to_string())
